@@ -15,16 +15,16 @@ sudo apt-get install qemu binutils-mingw-w64 gcc-mingw-w64 ovmf
 
 ### Lancement
 
-Préparer le réseau virtuel avec
+Préparer le réseau virtuel avec  
 sudo ./init_network.sh
 
 Ecouter sur le port 2333 dans un terminal  
 nc 192.168.0.1 -v -n -l 2333
 
-Lancer l'application UEFI avec
+Lancer l'application UEFI avec  
 sudo ./run.sh
 
-Pour lancer l'application UEFI sous la forme d'une image usb
+Pour lancer l'application UEFI sous la forme d'une image usb  
 qemu-system-x86_64 -L /usr/share/qemu -bios OVMF.fd -usb -usbdevice disk::fat.img  
 
 ### Préparation clef usb bootable UEFI
