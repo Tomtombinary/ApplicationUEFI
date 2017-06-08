@@ -5,25 +5,35 @@
 
 #define Print(message) ST->ConOut->OutputString(ST->ConOut,message)
 
-
+/* Instance global pour gerer le Tcp */
 EFI_TCP4* g_Tcp4Protocol = NULL;
 
+/* Affiche le message d'erreur correspondant au status */
 VOID LogError(EFI_STATUS Status,CHAR16* szFunctionName);
+/* Procédure appelée lors de la connexion */
 VOID ConnectHandler(EFI_EVENT Event,VOID* Context);
+/* Procédure appelée lors de la transmission du message */
 VOID TransmitHandler(EFI_EVENT Event,VOID* Context);
+VOID CloseHandler(EFI_EVENT Event,VOID* Context);
 
+/* Configure la connexion Tcp */
 EFI_STATUS ConfigureTcp();
+/* Se connect */
 EFI_STATUS Connect();
+/* Envoie le message hello world */
 EFI_STATUS SendMessage();
 
+EFI_STATUS Close();
+/*
+ * Point d'entrée de l'application UEFI
+ * @param ImageHandle: Handle de l'executable
+ * @param SystemTable: Table des services proposé par le système
+ */
 EFI_STATUS efi_main(EFI_HANDLE ImageHandle,EFI_SYSTEM_TABLE *SystemTable)
 {
-
     EFI_STATUS Status = EFI_SUCCESS;
 	EFI_INPUT_KEY Key;
 
-    EFI_TCP4_COMPLETION_TOKEN token;
-    EFI_TCP4_CONNECTION_STATE Tcp4State;
 
 	ST = SystemTable;
 
@@ -44,20 +54,13 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle,EFI_SYSTEM_TABLE *SystemTable)
         return Status;
     }
 
-    Status = ConfigureTcp();
-    Status = Connect();
-    if(EFI_ERROR(Status))
-    {
-        LogError(Status,L"Connect:WaitForEvent");
-        return Status;
-    }
-
-    Status = SendMessage();
-    if(EFI_ERROR(Status))
-    {
-        LogError(Status,L"SendMessage:WaitForEvent");
-        return Status;
-    }
+    ConfigureTcp();
+    Connect();
+    Print(L"[+] Connection established\r\n");
+    SendMessage();
+    Print(L"[+] Message send\r\n");
+    Close();
+    Print(L"[+] Connection closed\r\n");
 
     Status = ST->ConIn->Reset(ST->ConIn,FALSE);
 	if(EFI_ERROR(Status))
@@ -67,27 +70,29 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle,EFI_SYSTEM_TABLE *SystemTable)
 	return Status;
 }
 
+/* Handler pour répondre au signal de connexion */
 VOID ConnectHandler(EFI_EVENT Event,VOID* Context)
-{
-    Print(L"ConnectHandler : Connection established\r\n");
-}
+{}
 
 
 VOID TransmitHandler(EFI_EVENT Event,VOID* Context)
-{
-    Print(L"TransmitHandler : Message send\r\n");
-}
+{}
+
+VOID CloseHandler(EFI_EVENT Event,VOID* Context)
+{}
 
 EFI_STATUS Connect()
 {
     EFI_STATUS Status = EFI_SUCCESS;
     EFI_TCP4_CONNECTION_TOKEN ConnectionToken;
+    EFI_TCP4_CONNECTION_STATE Tcp4State;
     UINTN Index;
 
-    Status = ST->BootServices->CreateEvent(EVT_NOTIFY_WAIT,
-                                           TPL_CALLBACK,
+    /* Création de l'evenement */
+    Status = ST->BootServices->CreateEvent(EVT_NOTIFY_SIGNAL,
+                                           TPL_NOTIFY,
                                            ConnectHandler,
-                                           &g_Tcp4Protocol,
+                                           &ST,
                                            &ConnectionToken.CompletionToken.Event);
     ConnectionToken.CompletionToken.Status = 0;
 
@@ -97,6 +102,7 @@ EFI_STATUS Connect()
         return Status;
     }
 
+    /* Connexion */
     Status = g_Tcp4Protocol->Connect(g_Tcp4Protocol,&ConnectionToken);
 
     if(EFI_ERROR(Status))
@@ -105,9 +111,9 @@ EFI_STATUS Connect()
         return Status;
     }
 
-    Status = ST->BootServices->WaitForEvent(1,&ConnectionToken.CompletionToken.Event,&Index);
-    if(EFI_ERROR(Status))
-        LogError(Status,L"WaitForEvent");
+    while(Tcp4State != Tcp4StateEstablished)
+        g_Tcp4Protocol->GetModeData(g_Tcp4Protocol,&Tcp4State,NULL,NULL,NULL,NULL);
+
 
     Status = ST->BootServices->CloseEvent(ConnectionToken.CompletionToken.Event);
     if(EFI_ERROR(Status))
@@ -116,6 +122,9 @@ EFI_STATUS Connect()
     return Status;
 }
 
+/*
+ * Configure la connexion Tcp
+ */
 EFI_STATUS ConfigureTcp()
 {
     EFI_TCP4_OPTION ControlOption;
@@ -126,22 +135,28 @@ EFI_STATUS ConfigureTcp()
     Tcp4ConfigData.TimeToLive = 0;
     Tcp4ConfigData.AccessPoint.UseDefaultAddress = FALSE;
 
+    /* IP actuelle 192.168.0.10 */
     Tcp4ConfigData.AccessPoint.StationAddress.Addr[0] = 192;
     Tcp4ConfigData.AccessPoint.StationAddress.Addr[1] = 168;
     Tcp4ConfigData.AccessPoint.StationAddress.Addr[2] = 0;
     Tcp4ConfigData.AccessPoint.StationAddress.Addr[3] = 10;
 
+    /* Masque de sous-réseau 255.255.255.0 */
     Tcp4ConfigData.AccessPoint.SubnetMask.Addr[0] = 255;
     Tcp4ConfigData.AccessPoint.SubnetMask.Addr[1] = 255;
     Tcp4ConfigData.AccessPoint.SubnetMask.Addr[2] = 255;
     Tcp4ConfigData.AccessPoint.SubnetMask.Addr[3] = 0;
 
+    /* Port de source 0 = autoselection par le système */
     Tcp4ConfigData.AccessPoint.StationPort = 0;
+    /* Destination 192.168.0.1 */
     Tcp4ConfigData.AccessPoint.RemoteAddress.Addr[0] = 192;
     Tcp4ConfigData.AccessPoint.RemoteAddress.Addr[1] = 168;
     Tcp4ConfigData.AccessPoint.RemoteAddress.Addr[2] = 0;
-    Tcp4ConfigData.AccessPoint.RemoteAddress.Addr[3] = 1; /* 192.168.0.1 */
+    Tcp4ConfigData.AccessPoint.RemoteAddress.Addr[3] = 1;
+    /* Port de destination 2333 */
     Tcp4ConfigData.AccessPoint.RemotePort = 2333;
+    /* Mode TRUE -> Connexion direct, FALSE -> Listen */
     Tcp4ConfigData.AccessPoint.ActiveFlag = TRUE;
 
     ControlOption.ReceiveBufferSize = 512;
@@ -179,9 +194,9 @@ EFI_STATUS SendMessage()
 
     IOToken.CompletionToken.Status = Tcp4StateEstablished;
     Status = ST->BootServices->CreateEvent(EVT_NOTIFY_WAIT,
-                                           TPL_CALLBACK,
+                                           TPL_NOTIFY,
                                            TransmitHandler,
-                                           &g_Tcp4Protocol,
+                                           &ST,
                                            &IOToken.CompletionToken.Event);
     if(EFI_ERROR(Status))
     {
@@ -217,6 +232,42 @@ EFI_STATUS SendMessage()
     return Status;
 }
 
+EFI_STATUS Close()
+{
+    EFI_STATUS Status;
+    EFI_TCP4_CLOSE_TOKEN CloseToken;
+    UINTN Index;
+
+
+    Status = ST->BootServices->CreateEvent(EVT_NOTIFY_WAIT,
+                                           TPL_NOTIFY,
+                                           CloseHandler,
+                                           &ST,
+                                           &CloseToken.CompletionToken.Event);
+    if(EFI_ERROR(Status))
+    {
+        LogError(Status,L"CreateEvent");
+        return Status;
+    }
+
+    CloseToken.AbortOnClose = FALSE;
+
+    Status = g_Tcp4Protocol->Close(g_Tcp4Protocol,&CloseToken);
+    if(EFI_ERROR(Status))
+    {
+        LogError(Status,L"Close");
+        return Status;
+    }
+
+    Status = ST->BootServices->WaitForEvent(1,&CloseToken.CompletionToken.Event,&Index);
+    if(EFI_ERROR(Status))
+        LogError(Status,L"WaitForEvent");
+
+    Status = ST->BootServices->CloseEvent(CloseToken.CompletionToken.Event);
+    if(EFI_ERROR(Status))
+        LogError(Status,L"CloseEvent");
+    return Status;
+}
 
 VOID LogError(EFI_STATUS Status,CHAR16* szFunctionName)
 {
@@ -254,7 +305,7 @@ VOID LogError(EFI_STATUS Status,CHAR16* szFunctionName)
             Print(L" : unsupported\r\n");
             break;
         case EFI_DEVICE_ERROR:
-            Print(L" : devicee error\r\n");
+            Print(L" : device error\r\n");
             break;
         default:
             Print(L" : unknown error\r\n");
