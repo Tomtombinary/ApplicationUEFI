@@ -1,6 +1,6 @@
 # ApplicationUEFI
 Application UEFI,
-qui se connecte en TCP à la machine 192.168.0.1 sur le port 2333 et
+qui se connecte en TCP à la machine 192.168.0.1 sur le port 2333 et  
 envoi le message "Hello, world"
 
 
@@ -18,7 +18,7 @@ sudo apt-get install qemu binutils-mingw-w64 gcc-mingw-w64 ovmf
 Préparer le réseau virtuel avec
 sudo ./init_network.sh
 
-Ecouter sur le port 2333 dans un terminal
+Ecouter sur le port 2333 dans un terminal  
 nc 192.168.0.1 -v -n -l 2333
 
 Lancer l'application UEFI avec
